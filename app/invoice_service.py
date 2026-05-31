@@ -38,10 +38,16 @@ def add_line(db: Session, invoice: Invoice, hsn_code: str, description: str, qty
     customer = invoice.customer
     pos = resolve_pos(vendor, customer, invoice.pos_override)
     intra = is_intra_state(vendor.state_code, pos)
-    tax = compute_line_tax(taxable_paise, slab, intra)
-    cess_percent = get_cess(hsn_code)
-    cess = compute_cess(taxable_paise, cess_percent)
     rcm = is_reverse_charge(hsn_code)
+    if rcm:
+        tax = {"cgst_paise": 0, "sgst_paise": 0, "igst_paise": 0}
+        rcm_amount = taxable_paise * slab // 100
+    else:
+        tax = compute_line_tax(taxable_paise, slab, intra)
+        rcm_amount = 0
+    cess_percent = get_cess(hsn_code)
+    inclusive_base = taxable_paise + tax["cgst_paise"] + tax["sgst_paise"] + tax["igst_paise"]
+    cess = compute_cess(inclusive_base, cess_percent)
     line = LineItem(
         invoice_id=invoice.id,
         hsn_code=hsn_code,
@@ -54,10 +60,9 @@ def add_line(db: Session, invoice: Invoice, hsn_code: str, description: str, qty
         sgst_paise=tax["sgst_paise"],
         igst_paise=tax["igst_paise"],
         cess_paise=cess,
+        reverse_charge_paise=rcm_amount,
         reverse_charge=rcm,
     )
-    if rcm:
-        line.reverse_charge_paise = taxable_paise * slab // 100
     db.add(line)
     invoice.is_intra_state = intra
     db.flush()
